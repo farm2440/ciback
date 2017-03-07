@@ -42,9 +42,6 @@ def backup_device(crd):
         tty = telnetlib.Telnet(credentials['ip'],23,5)
         exp = tty.expect(relist, 5)  # expect връща кортеж
         print exp
-        print "exp[0]=", exp[0]
-        print "exp[1]=", exp[1]
-        print "exp[2]=", exp[2]
         if exp[0] == -1:
             # няма открит reg exp
             print "ERR: unexpected initial responce from ", credentials["ip"]
@@ -55,13 +52,10 @@ def backup_device(crd):
             # идентификация по Username & Password
             print("Username and Password required")
             tty.write(credentials['username'] + '\n')
+            print "write : username : ", credentials['username']
             time.sleep(wait)
             exp = tty.expect(relist, 1)
             print "   ", exp
-            print "   exp[0]=", exp[0]
-            print "   exp[1]=", exp[1]
-            print "   exp[2]=", exp[2]
-            exp = tty.expect(relist, 1)
             if exp[0] != 1:
                 # След въведено Username трябва да поиска парола. Ако не е така излизаа с грешка
                 print "ERR: unexpected responce from ", credentials["ip"], " after Usrename entered."
@@ -69,25 +63,71 @@ def backup_device(crd):
                 tty.close()
                 return
             tty.write(credentials['password'] + '\n')
+            print "write : password :",credentials['password']
             time.sleep(wait)
         elif exp[0] == 1:
             # идентификация по Password
             print("Only password required")
             tty.write(credentials['password'] + '\n')
+            print "write : password :", credentials['password']
             time.sleep(wait)
         # До тук е въведена password или username/password в зависимост от нуждата
         # устройството трябва да върне промпт завършващ с > или # в зависимот от privilege level
-
         print " Expecting prompt..."
-        exp = tty.expect(relist, 1)
+        exp = tty.expect(relist, 7)
         print "   ", exp
-        print "   exp[0]=", exp[0]
-        print "   exp[1]=", exp[1]
-        print "   exp[2]=", exp[2]
+        if exp[0] == 3:
+            # промпт е > т.е. privilege level 0. трябва да се въведе enable
+            print "entered non-privileged mode"
+            tty.write("enable\n")
+            print "write : enable"
+            time.sleep(wait)
+            exp = tty.expect(relist, 1)
+            print "   ", exp
+            if exp[0] == 1:
+                # очаква се enable password
+                tty.write(credentials['enable'] + '\n')
+                print "write : enable password :", credentials['enable']
+                time.sleep(wait)
+            else:
+                print "ERR: Unexpected responce from ", credentials['ip'], " after enable command."
+                writeLogMsg("ERR: Unexpected responce from " + credentials['ip'] + " after enable command.")
+                tty.close()
+                return
+            # enable паролата е въведена. Очакваме промпт #
+            exp = tty.expect(relist, 2)
+            print exp
+            if exp[0] == 2:
+                # промпт е # няма privilege level 15
+                print "entered privileged mode"
+            else:
+                print "ERR: Invalid enable password for ", credentials['ip']
+                writeLogMsg("ERR: Invalid enable password for " + credentials['ip'])
+                tty.close()
+                return
+        elif exp[0] == 2:
+            # промпт е # няма privilege level 15
+            print "entered privileged mode"
+        elif exp[0] == 1 or exp[0] == 0:
+            print "ERR: Invalid password or username for ", credentials['ip']
+            writeLogMsg("ERR: Invalid password or username for " + credentials['ip'])
+            tty.close()
+            return
+        else:
+            print "ERR: unexpected responce from ", credentials["ip"], " after Password entered."
+            writeLogMsg("ERR: unexpected responce from " + credentials["ip"] + " after Password entered.")
+            tty.close()
+            return
+
+        # Тук сме в privileged mode!
+        # TODO backup code!
+        
         tty.write("exit\n")
+        print "write : exit"
         time.sleep(wait)
         tty.close()
     except:
+        print "ERR: Failed telnet to ", credentials['ip']
         writeLogMsg("ERR: Failed telnet to " + credentials['ip'])
         return
 
@@ -119,8 +159,8 @@ for child in root:
 
     print child.tag, i
     print credentials
-    print "\n"
     backup_device(credentials)
+    print "\n---------------------------\n"
 writeLogMsg("script has finished")
 
 
