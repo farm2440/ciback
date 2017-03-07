@@ -84,7 +84,6 @@ def backup_device(crd):
         print "   exp[0]=", exp[0]
         print "   exp[1]=", exp[1]
         print "   exp[2]=", exp[2]
-
         tty.write("exit\n")
         time.sleep(wait)
         tty.close()
