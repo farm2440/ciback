@@ -74,7 +74,7 @@ def go_enabled(crd):
                 print "ERR: unexpected responce from ", crd["ip"], " after Usrename entered."
                 writeLogMsg("ERR: unexpected responce from " + crd["ip"] + " after Usrename entered.")
                 tty.close()
-                return tty, enabled
+                return enabled
             tty.write(crd['password'] + '\n')
             print "write : password :",crd['password']
             time.sleep(wait)
@@ -106,18 +106,19 @@ def go_enabled(crd):
                 print "ERR: Unexpected responce from ", crd['ip'], " after enable command."
                 writeLogMsg("ERR: Unexpected responce from " + crd['ip'] + " after enable command.")
                 tty.close()
-                return tty, enabled
+                return enabled
             # enable паролата е въведена. Очакваме промпт #
             exp = tty.expect(relist, 2)
             print exp
             if exp[0] == 2:
                 # промпт е # - има privilege level 15
+                enabled = True
                 print "entered privileged mode"
             else:
                 print "ERR: Invalid enable password for ", crd['ip']
                 writeLogMsg("ERR: Invalid enable password for " + crd['ip'])
                 tty.close()
-                return tty, enabled
+                return enabled
         elif exp[0] == 2:
             # промпт е # - има privilege level 15
             enabled = True
@@ -126,12 +127,12 @@ def go_enabled(crd):
             print "ERR: Invalid password or username for ", crd['ip']
             writeLogMsg("ERR: Invalid password or username for " + crd['ip'])
             tty.close()
-            return tty, enabled
+            return enabled
         else:
             print "ERR: unexpected responce from ", crd["ip"], " after Password entered."
             writeLogMsg("ERR: unexpected responce from " + crd["ip"] + " after Password entered.")
             tty.close()
-            return tty, enabled
+            return enabled
 
         # Тук сме в privileged mode!
         # TODO backup code!
@@ -143,10 +144,10 @@ def go_enabled(crd):
     except:
         print "ERR: Failed telnet to ", crd['ip']
         writeLogMsg("ERR: Failed telnet to " + crd['ip'])
-        return tty, enabled
+        return enabled
 
     writeLogMsg("backup done")
-    return tty
+    return enabled
 #------------------------------------------------------------------#
 
 writeLogMsg("script was started")
@@ -176,6 +177,13 @@ for child in root:
     enabled = go_enabled(credentials)
     if enabled :
         print "Succcessfuly enabled! Closing the connection..."
+
+        # за проба
+        tty.write("show version\n")
+        time.sleep(5)
+        ver = tty.read_very_eager()
+        print "show version : ", ver
+
         tty.write("exit\n")
         time.sleep(0.5)
         tty.close()
