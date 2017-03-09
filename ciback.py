@@ -47,18 +47,17 @@ def go_enabled(crd):
     re2 = re.compile("Password: ")
     re3 = re.compile("\n.+#$")  # privilege level 15
     re4 = re.compile("\n.+>$")  # privilege level 0
-    relist = [re1, re2, re3, re4] # списък с regular expression за проверка на връщаните от Cisco низове
+    relist = [re1, re2, re3, re4]  # списък с regular expression за проверка на връщаните от Cisco низове
 
     try:
         tty.open(crd['ip'],23,5)
-        #tty = telnetlib.Telnet(crd['ip'],23,5)
         exp = tty.expect(relist, 5)  # expect връща кортеж. Първия елемент е индекс на RegExp за който има match.
-                                     # Ако няма, стойността му е -1. Третия елемент е приетия низ.
+        # Ако няма, стойността му е -1. Третия елемент е приетия низ.
         print exp
         if exp[0] == -1:
             # няма открит reg exp
-            print "ERR: unexpected initial responce from ", crd["ip"]
-            writeLogMsg("ERR: unexpected responce from " + crd["ip"])
+            print "ERR: unexpected initial response from ", crd["ip"]
+            writeLogMsg("ERR: unexpected response from " + crd["ip"])
             tty.close()
             return enabled
         elif exp[0] == 0:
@@ -71,8 +70,8 @@ def go_enabled(crd):
             print "   ", exp
             if exp[0] != 1:
                 # След въведено Username трябва да поиска парола. Ако не е така излизаа с грешка
-                print "ERR: unexpected responce from ", crd["ip"], " after Usrename entered."
-                writeLogMsg("ERR: unexpected responce from " + crd["ip"] + " after Usrename entered.")
+                print "ERR: unexpected response from ", crd["ip"], " after Username entered."
+                writeLogMsg("ERR: unexpected response from " + crd["ip"] + " after Username entered.")
                 tty.close()
                 return enabled
             tty.write(crd['password'] + '\n')
@@ -129,8 +128,8 @@ def go_enabled(crd):
             tty.close()
             return enabled
         else:
-            print "ERR: unexpected responce from ", crd["ip"], " after Password entered."
-            writeLogMsg("ERR: unexpected responce from " + crd["ip"] + " after Password entered.")
+            print "ERR: unexpected response from ", crd["ip"], " after Password entered."
+            writeLogMsg("ERR: unexpected response from " + crd["ip"] + " after Password entered.")
             tty.close()
             return enabled
 
@@ -141,13 +140,14 @@ def go_enabled(crd):
         return enabled
 
     return enabled
-#------------------------------------------------------------------#
+# ------------------------------------------------------------------ #
+
 
 def do_backup_running_config(hostname):
     # Изтегля конфигурацията при вече изградена telnet връзка и privileged mode
     # Използва командата show running-config
     print ("backing up the running config...")
-    tty.write("terminal length 0\n") # без тази команда няма да се изведе цялата конфигурация наведнъж
+    tty.write("terminal length 0\n")  # без тази команда няма да се изведе цялата конфигурация наведнъж
     time.sleep(0.5)
     tty.write("show run\n")
     re1 = re.compile("\r?\nend\r?\n")
@@ -155,14 +155,25 @@ def do_backup_running_config(hostname):
     conf = tty.expect(relist, 5)
     if conf[0] == 0:
         # Записваме конфигурацията във файл
-        backup_file = open(hostname + "-confg",'w')
-        backup_file.write(conf[2])
+        backup_file = open(hostname + "-confg", 'w')
+        lines = conf[2].splitlines()
+        for l in lines:
+            if l.find("terminal length 0") != -1:
+                continue
+            if l.find("show run") != -1:
+                continue
+            if l.find("Building configuration") != -1:
+                continue
+            if l.find("Current configuration") != -1:
+                continue
+            backup_file.write(l + "\n")
+#        backup_file.write(conf[2])
         backup_file.close()
-    else :
+    else:
         print ("ERR: Failed creating backup for host " + hostname)
         writeLogMsg("ERR: Failed creating backup for host " + hostname)
     return
-#------------------------------------------------------------------#
+# ------------------------------------------------------------------ #
 
 writeLogMsg("script was started")
 tftpSrvIP = "10.0.52.1"  # IP адрес на TFTP сървъра
@@ -190,8 +201,8 @@ for child in root:
 
     print child.tag, i
     print credentials
-    enabled = go_enabled(credentials)
-    if enabled :
+    is_enabled = go_enabled(credentials)
+    if is_enabled:
         print "Succcessfuly enabled!"
         do_backup_running_config(credentials['hostname'])
         print("Closing the connection.")
@@ -199,9 +210,8 @@ for child in root:
         time.sleep(2)
         tty.read_very_eager()
         tty.close()
-    else :
+    else:
         print "Failed to enable!"
-
 
     print "\n---------------------------\n"
 writeLogMsg("script has finished")
