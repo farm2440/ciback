@@ -135,19 +135,33 @@ def go_enabled(crd):
             return enabled
 
         # Тук сме в privileged mode!
-        # TODO backup code!
-
-        # tty.write("exit\n")
-        # print "write : exit"
-        # time.sleep(wait)
-        # tty.close()
     except:
         print "ERR: Failed telnet to ", crd['ip']
         writeLogMsg("ERR: Failed telnet to " + crd['ip'])
         return enabled
 
-    writeLogMsg("backup done")
     return enabled
+#------------------------------------------------------------------#
+
+def do_backup_running_config(hostname):
+    # Изтегля конфигурацията при вече изградена telnet връзка и privileged mode
+    # Използва командата show running-config
+    print ("backing up the running config...")
+    tty.write("terminal length 0\n") # без тази команда няма да се изведе цялата конфигурация наведнъж
+    time.sleep(0.5)
+    tty.write("show run\n")
+    re1 = re.compile("\r?\nend\r?\n")
+    relist = [re1]
+    conf = tty.expect(relist, 5)
+    if conf[0] == 0:
+        # Записваме конфигурацията във файл
+        backup_file = open(hostname + "-confg",'w')
+        backup_file.write(conf[2])
+        backup_file.close()
+    else :
+        print ("ERR: Failed creating backup for host " + hostname)
+        writeLogMsg("ERR: Failed creating backup for host " + hostname)
+    return
 #------------------------------------------------------------------#
 
 writeLogMsg("script was started")
@@ -158,7 +172,7 @@ tree = ET.parse("credentials.xml")
 root = tree.getroot()
 
 i = 0
-credentials = {'ip':"None", 'username':'None', 'password':'None', 'enable':'None' }
+credentials = {'ip': "None", 'username': 'None', 'password': 'None', 'enable': 'None', 'hostname': 'None'}
 
 for child in root:
     i += 1
@@ -171,21 +185,19 @@ for child in root:
             credentials['password'] = elm.text
         elif elm.tag == "enable":
             credentials['enable'] = elm.text
+        elif elm.tag == "hostname":
+            credentials['hostname'] = elm.text
 
     print child.tag, i
     print credentials
     enabled = go_enabled(credentials)
     if enabled :
-        print "Succcessfuly enabled! Closing the connection..."
-
-        # за проба
-        tty.write("show version\n")
-        time.sleep(5)
-        ver = tty.read_very_eager()
-        print "show version : ", ver
-
+        print "Succcessfuly enabled!"
+        do_backup_running_config(credentials['hostname'])
+        print("Closing the connection.")
         tty.write("exit\n")
-        time.sleep(0.5)
+        time.sleep(2)
+        tty.read_very_eager()
         tty.close()
     else :
         print "Failed to enable!"
