@@ -74,13 +74,13 @@ def go_enabled(crd):
                 tty.close()
                 return enabled
             tty.write(crd['password'] + '\n')
-            write_log_msg("write : password :" + '******')
+            write_log_msg("write : password : " + '******')
             time.sleep(wait)
         elif exp[0] == 1:
             # идентификация по Password
             write_log_msg("Only password required")
             tty.write(crd['password'] + '\n')
-            write_log_msg("write : password :" + '******')
+            write_log_msg("write : password : " + '******')
             time.sleep(wait)
         # До тук е въведена password или username/password в зависимост от нуждата
         # устройството трябва да върне промпт завършващ с > или # в зависимот от privilege level
@@ -98,7 +98,7 @@ def go_enabled(crd):
             if exp[0] == 1:
                 # очаква се enable password
                 tty.write(crd['enable'] + '\n')
-                write_log_msg("write : enable password :" + '*****')
+                write_log_msg("write : enable password : " + '*****')
                 time.sleep(wait)
             else:
                 write_log_msg("ERR: Unexpected responce from " + crd['ip'] + " after enable command.")
@@ -145,8 +145,8 @@ def do_backup_running_config(hostname):
     time.sleep(0.5)
     tty.write("show run\n")
     re1 = re.compile("\r?\nend\r?\n")
-    relist = [re1]
-    conf = tty.expect(relist, 5)
+    re_list = [re1]
+    conf = tty.expect(re_list, 5)
     if conf[0] == 0:
         # Записваме конфигурацията във файл
         backup_file = open(hostname + "-confg", 'w')
@@ -167,6 +167,27 @@ def do_backup_running_config(hostname):
     return
 # ------------------------------------------------------------------ #
 
+
+def do_backup_vlan(hostname):
+    # Изпраща команда show vlan и върнатия резултат го записва във файл hostname-vlan
+    write_log_msg("backingup VLAN data...")
+    tty.write("terminal length 0\n")  # без тази команда няма да се изведе цялата конфигурация наведнъж
+    time.sleep(0.5)
+    tty.write("show vlan\n")
+    time.sleep(4)
+    vlan_data = tty.read_very_eager()
+    vlan_data_lines = vlan_data.splitlines()
+    vlan_backup = open(hostname + "-vlan",'w')
+    for l in vlan_data_lines:
+        if l.find("terminal length 0") != -1:
+            continue
+        if l.find("show vlan") != -1:
+            continue
+        vlan_backup.write(l)
+    vlan_backup.close()
+    return
+# ------------------------------------------------------------------ #
+
 # изчистване на log.txt от старо съдържание
 logtxt = open("log.txt", 'w')
 logtxt.close()
@@ -177,7 +198,7 @@ tree = ET.parse("credentials.xml")
 root = tree.getroot()
 
 i = 0
-credentials = {'ip': "None", 'username': 'None', 'password': 'None', 'enable': 'None', 'hostname': 'None'}
+credentials = {'ip': "None", 'username': 'None', 'password': 'None', 'enable': 'None', 'hostname': 'None', 'vlan': 'None'}
 
 for child in root:
     i += 1
@@ -192,6 +213,8 @@ for child in root:
             credentials['enable'] = elm.text
         elif elm.tag == "hostname":
             credentials['hostname'] = elm.text
+        elif elm.tag == "vlan":
+            credentials['vlan'] = elm.text
 
     print child.tag, i
     print credentials
@@ -199,6 +222,10 @@ for child in root:
     if is_enabled:
         write_log_msg("Succcessfuly enabled!")
         do_backup_running_config(credentials['hostname'])
+
+        if credentials['vlan'] == 'yes':
+            do_backup_vlan(credentials['hostname'])
+            
         write_log_msg("Closing the connection.")
         tty.write("exit\n")
         time.sleep(2)
