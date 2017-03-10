@@ -21,12 +21,13 @@ tty = telnetlib.Telnet()
 # ------------------------------------------------------------------ #
 
 
-def writeLogMsg(msg):
+def write_log_msg(msg):
     # Записва във log.txt диагностично съобщение а също дата/час на записа.
     log = open("log.txt", 'a+')
-    timeStamp = time.strftime("[%d.%m.%Y %H:%M:%S]  ")
-    log.write(timeStamp + msg + "\n")
+    time_stamp = time.strftime("[%d.%m.%Y %H:%M:%S]  ")
+    log.write(time_stamp + msg + "\n")
     log.close()
+    print(msg)
     return
 # ------------------------------------------------------------------ #
 
@@ -37,7 +38,7 @@ def go_enabled(crd):
     # връща флаг enabled който е True ако функцията е успяла да стигне до привилегирован
     # режим и да получи промпт #.  Ако не устее върнатия enabled=False
 
-    writeLogMsg("try backup for device with IP " + crd['ip'] + "...")
+    write_log_msg("try backup for device with IP " + crd['ip'] + " hostname " + crd['hostname'] + "...")
     wait = 0.5
     enabled = False
 
@@ -50,60 +51,57 @@ def go_enabled(crd):
     relist = [re1, re2, re3, re4]  # списък с regular expression за проверка на връщаните от Cisco низове
 
     try:
-        tty.open(crd['ip'],23,5)
+        tty.open(crd['ip'], 23, 5)
         exp = tty.expect(relist, 5)  # expect връща кортеж. Първия елемент е индекс на RegExp за който има match.
         # Ако няма, стойността му е -1. Третия елемент е приетия низ.
         print exp
         if exp[0] == -1:
             # няма открит reg exp
-            print "ERR: unexpected initial response from ", crd["ip"]
-            writeLogMsg("ERR: unexpected response from " + crd["ip"])
+            write_log_msg("ERR: unexpected response from " + crd["ip"])
             tty.close()
             return enabled
         elif exp[0] == 0:
             # идентификация по Username & Password
-            print("Username and Password required")
+            write_log_msg("Username and Password required")
             tty.write(crd['username'] + '\n')
-            print "write : username : ", crd['username']
+            write_log_msg("write : username : " + '******')
             time.sleep(wait)
             exp = tty.expect(relist, 1)
             print "   ", exp
             if exp[0] != 1:
                 # След въведено Username трябва да поиска парола. Ако не е така излизаа с грешка
-                print "ERR: unexpected response from ", crd["ip"], " after Username entered."
-                writeLogMsg("ERR: unexpected response from " + crd["ip"] + " after Username entered.")
+                write_log_msg("ERR: unexpected response from " + crd["ip"] + " after Username entered.")
                 tty.close()
                 return enabled
             tty.write(crd['password'] + '\n')
-            print "write : password :",crd['password']
+            write_log_msg("write : password :" + '******')
             time.sleep(wait)
         elif exp[0] == 1:
             # идентификация по Password
-            print("Only password required")
+            write_log_msg("Only password required")
             tty.write(crd['password'] + '\n')
-            print "write : password :", crd['password']
+            write_log_msg("write : password :" + '******')
             time.sleep(wait)
         # До тук е въведена password или username/password в зависимост от нуждата
         # устройството трябва да върне промпт завършващ с > или # в зависимот от privilege level
-        print " Expecting prompt..."
+            write_log_msg(" Expecting prompt...")
         exp = tty.expect(relist, 7)
         print "   ", exp
         if exp[0] == 3:
             # промпт е > т.е. privilege level 0. трябва да се въведе enable
-            print "entered non-privileged mode"
+            write_log_msg("entered non-privileged mode")
             tty.write("enable\n")
-            print "write : enable"
+            write_log_msg("write : enable")
             time.sleep(wait)
             exp = tty.expect(relist, 1)
             print "   ", exp
             if exp[0] == 1:
                 # очаква се enable password
                 tty.write(crd['enable'] + '\n')
-                print "write : enable password :", crd['enable']
+                write_log_msg("write : enable password :" + '*****')
                 time.sleep(wait)
             else:
-                print "ERR: Unexpected responce from ", crd['ip'], " after enable command."
-                writeLogMsg("ERR: Unexpected responce from " + crd['ip'] + " after enable command.")
+                write_log_msg("ERR: Unexpected responce from " + crd['ip'] + " after enable command.")
                 tty.close()
                 return enabled
             # enable паролата е въведена. Очакваме промпт #
@@ -112,31 +110,27 @@ def go_enabled(crd):
             if exp[0] == 2:
                 # промпт е # - има privilege level 15
                 enabled = True
-                print "entered privileged mode"
+                write_log_msg("entered privileged mode")
             else:
-                print "ERR: Invalid enable password for ", crd['ip']
-                writeLogMsg("ERR: Invalid enable password for " + crd['ip'])
+                write_log_msg("ERR: Invalid enable password for " + crd['ip'])
                 tty.close()
                 return enabled
         elif exp[0] == 2:
             # промпт е # - има privilege level 15
             enabled = True
-            print "entered privileged mode"
+            write_log_msg("entered privileged mode")
         elif exp[0] == 1 or exp[0] == 0:
-            print "ERR: Invalid password or username for ", crd['ip']
-            writeLogMsg("ERR: Invalid password or username for " + crd['ip'])
+            write_log_msg("ERR: Invalid password or username for " + crd['ip'])
             tty.close()
             return enabled
         else:
-            print "ERR: unexpected response from ", crd["ip"], " after Password entered."
-            writeLogMsg("ERR: unexpected response from " + crd["ip"] + " after Password entered.")
+            write_log_msg("ERR: unexpected response from " + crd["ip"] + " after Password entered.")
             tty.close()
             return enabled
 
         # Тук сме в privileged mode!
     except:
-        print "ERR: Failed telnet to ", crd['ip']
-        writeLogMsg("ERR: Failed telnet to " + crd['ip'])
+        write_log_msg("ERR: Failed telnet to " + crd['ip'])
         return enabled
 
     return enabled
@@ -146,7 +140,7 @@ def go_enabled(crd):
 def do_backup_running_config(hostname):
     # Изтегля конфигурацията при вече изградена telnet връзка и privileged mode
     # Използва командата show running-config
-    print ("backing up the running config...")
+    write_log_msg("backing up the running config...")
     tty.write("terminal length 0\n")  # без тази команда няма да се изведе цялата конфигурация наведнъж
     time.sleep(0.5)
     tty.write("show run\n")
@@ -167,16 +161,16 @@ def do_backup_running_config(hostname):
             if l.find("Current configuration") != -1:
                 continue
             backup_file.write(l + "\n")
-#        backup_file.write(conf[2])
         backup_file.close()
     else:
-        print ("ERR: Failed creating backup for host " + hostname)
-        writeLogMsg("ERR: Failed creating backup for host " + hostname)
+        write_log_msg("ERR: Failed creating backup for host " + hostname)
     return
 # ------------------------------------------------------------------ #
 
-writeLogMsg("script was started")
-tftpSrvIP = "10.0.52.1"  # IP адрес на TFTP сървъра
+# изчистване на log.txt от старо съдържание
+logtxt = open("log.txt", 'w')
+logtxt.close()
+write_log_msg("script was started")
 
 # parse XML
 tree = ET.parse("credentials.xml")
@@ -203,18 +197,18 @@ for child in root:
     print credentials
     is_enabled = go_enabled(credentials)
     if is_enabled:
-        print "Succcessfuly enabled!"
+        write_log_msg("Succcessfuly enabled!")
         do_backup_running_config(credentials['hostname'])
-        print("Closing the connection.")
+        write_log_msg("Closing the connection.")
         tty.write("exit\n")
         time.sleep(2)
         tty.read_very_eager()
         tty.close()
     else:
-        print "Failed to enable!"
+        write_log_msg("Failed to enable!")
 
     print "\n---------------------------\n"
-writeLogMsg("script has finished")
+write_log_msg("script has finished")
 
 
 
