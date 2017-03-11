@@ -1,22 +1,31 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 
-# скрипт за извличане архив на конфигурациите на Cisco устройства
+# ciback = CIscoBACKup
+# Python скрипт за извличане архив на конфигурациите на Cisco устройства и автоматично генериране на
+# bash скрипт който да прави commit в git на променените конфигурации.
+# От файла credentials.xml се извличат имена на устройства, IP адреси, пароли....
+# Последоваелно за всяко устройство се прави опит за telnet сесия и влизане в
+# privileged mode след което се изтегля архив на конфигурацията
+# Името на архивния файл е <hostname>-confg. За устройства за които в xml e дадено
+# <vlan>yes</vlan> се изтегля архив <hostname>-vlan който е изхода от команда show vlan
+# Във файла conf_updates.txt се запазва информация за дата и час на последната промяна в конфигурацията
+# запазена при последното стартиране на ciback. Тази информация се сравнява с току щo изтегления архив
+# и се проверява за кои устройства има промяна.
+# Генерира се скрипт add_git които да добави променените файлове в git и да направи commit.
+# Във файла log.txt се записват диагностични съобщения
+#
+# DISCLAIMER: This program is free open source and should be used only upon your responsibility.
+# No charges can be claimed from the author for potential damages caused.
+#
 # Author: Svilen Stavrev
 # Varna, 2017
 
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # работа с XML
 import time
 import telnetlib
-import re
-
-"""
-ciback = CIscoBACKup
-От credentials.xml се извличат паролите и IP адресите на устройствата от които трябва да се свали архив.
-Във файла log.txt се записват всички извършени действия от програмата, съобщения за грешки и диагностични съобщения
-b"""
-
-tty = telnetlib.Telnet()
+import re   # Regular Expression
+import ast  # For string to dictionary conversion
 
 # ------------------------------------------------------------------ #
 
@@ -152,6 +161,7 @@ def do_backup_running_config(hostname):
         backup_file = open(hostname + "-confg", 'w')
         lines = conf[2].splitlines()
         for l in lines:
+            # махат се редове които нямат касателство към конфигурацията
             if l.find("terminal length 0") != -1:
                 continue
             if l.find("show run") != -1:
@@ -160,6 +170,8 @@ def do_backup_running_config(hostname):
                 continue
             if l.find("Current configuration") != -1:
                 continue
+            if l.find("! Last configuration change at ") != -1:
+                last_updates[hostname] = l[31:59]
             backup_file.write(l + "\n")
         backup_file.close()
     else:
@@ -177,7 +189,7 @@ def do_backup_vlan(hostname):
     time.sleep(4)
     vlan_data = tty.read_very_eager()
     vlan_data_lines = vlan_data.splitlines()
-    vlan_backup = open(hostname + "-vlan",'w')
+    vlan_backup = open(hostname + "-vlan", 'w')
     for l in vlan_data_lines:
         if l.find("terminal length 0") != -1:
             continue
@@ -188,19 +200,24 @@ def do_backup_vlan(hostname):
     return
 # ------------------------------------------------------------------ #
 
+
+# НАЧАЛО НА ГЛАВНАТА ПРОГРАМА
+tty = telnetlib.Telnet()
 # изчистване на log.txt от старо съдържание
 logtxt = open("log.txt", 'w')
 logtxt.close()
 write_log_msg("script was started")
-
 # parse XML
 tree = ET.parse("credentials.xml")
 root = tree.getroot()
 
 i = 0
 credentials = {'ip': "None", 'username': 'None', 'password': 'None', 'enable': 'None', 'hostname': 'None', 'vlan': 'None'}
+last_updates = {}  # тук за всяко устройство се записва hostname и в do_backup_running_config() се задава за това устройство
+              # дата и час на последната промяна в конфигурацията
 
 for child in root:
+    # За поредното i устройство се извличат данните от XML
     i += 1
     for elm in child:
         if elm.tag == "ip":
@@ -215,17 +232,18 @@ for child in root:
             credentials['hostname'] = elm.text
         elif elm.tag == "vlan":
             credentials['vlan'] = elm.text
-
+    # В credentials са извлечени всички данни за устройството i.
+    # Прави се опит да се влвзе в privileged mode и да се архивира конфигурацията
     print child.tag, i
     print credentials
     is_enabled = go_enabled(credentials)
     if is_enabled:
         write_log_msg("Succcessfuly enabled!")
         do_backup_running_config(credentials['hostname'])
-
+        # Ако в XML-а е указано, се архивира и инфо за VLAN
         if credentials['vlan'] == 'yes':
             do_backup_vlan(credentials['hostname'])
-            
+        # Приключва работа с устройство i
         write_log_msg("Closing the connection.")
         tty.write("exit\n")
         time.sleep(2)
@@ -233,8 +251,57 @@ for child in root:
         tty.close()
     else:
         write_log_msg("Failed to enable!")
-
     print "\n---------------------------\n"
+
+# Всички конфигурации са архивирани
+# прави се проверка за това кои устройства имат промяна в конфигурацията за времето от предното архивиране
+# и се създава скрипт add_git_changes който да добави в git променените файлове и да направи commit
+# В речника last_updates са събрани hostname:дата-час-на-последна промяна.
+# Във файла conf_updates.txt  е записана информацията за променени конфигурации при предходното стартиране
+write_log_msg("generating add_git script...")
+print "Configuration last changes:"
+for host in last_updates:
+    print host, " : ", last_updates[host]
+
+add_git = open("add_git",'w')
+add_git.write("#!/bin/bash\n")
+do_commit = False
+try:
+    prv_updates_file = open("conf_updates.txt",'r')
+    pu_data = prv_updates_file.read()
+    prv_updates = ast.literal_eval(pu_data)
+    prv_updates_file.close()
+    print "Configuration previous changes:"
+    for host in last_updates:
+        print host, " : ", prv_updates[host]
+    # Обхожда се last_updates и за всеки хост се сравнява момента на последна промяна в конфигурацията
+    # с момента на последна промяна записан в prv_updates и съхранен в conf_updates.txt при предното стартиране
+    # на програмата. Ако има разлика в датите съответната конфигурация е променяна и затова се добавя в git
+    for host in last_updates:
+        if str(host) in prv_updates:
+            if last_updates[host] != prv_updates[host]:
+                add_git.write("/usr/bin/git add " + host +"-confg\n")
+                do_commit = True
+        else:
+            add_git.write("/usr/bin/git add " + host + "-confg\n")
+            do_commit = True
+except IOError, e:
+    write_log_msg("ERR: Failed opening conf_updates.txt")
+    print(e)
+    prv_updates = {}
+    # В този случай в git се добавят всички изтеглени конфигурации
+    add_git.write("/usr/bin/git add *-confg\n")
+    do_commit = True
+
+if do_commit:
+    add_git.write('/usr/bin/git commit -am"automated commit"\n')
+add_git.close()
+
+# Write the contents of last_updates to conf_updates.txt
+prv_updates_file = open("conf_updates.txt", 'w')
+prv_updates_file.write(str(last_updates))
+prv_updates_file.close()
+
 write_log_msg("script has finished")
 
 
