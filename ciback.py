@@ -1,25 +1,24 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
-
+#
 # ciback = CIscoBACKup
-# Python скрипт за извличане архив на конфигурациите на Cisco устройства и автоматично генериране на
-# bash скрипт който да прави commit в git на променените конфигурации.
-# От файла credentials.xml се извличат имена на устройства, IP адреси, пароли....
-# Последоваелно за всяко устройство се прави опит за telnet сесия и влизане в
-# privileged mode след което се изтегля архив на конфигурацията
-# Името на архивния файл е <hostname>-confg. За устройства за които в xml e дадено
-# <vlan>yes</vlan> се изтегля архив <hostname>-vlan който е изхода от команда show vlan
-# Във файла conf_updates.txt се запазва информация за дата и час на последната промяна в конфигурацията
-# запазена при последното стартиране на ciback. Тази информация се сравнява с току щo изтегления архив
-# и се проверява за кои устройства има промяна.
-# Генерира се скрипт add_git които да добави променените файлове в git и да направи commit.
-# Във файла log.txt се записват диагностични съобщения
+# This Python script downloads configuration backup from multiple Cisco IOS devices
+# and a bash script is generated. This script performs git commit for those configurations
+# which were changed since the last run of ciback.
+# From credentials.xml the host names, IP addresses, passwords etc... are extracted sequentially
+# for each device and attempt for telnet session is made. If privileged mode is acquired the running
+# configuration is stored to file <hostname>-confg. If for some device in credentials.xml
+# <vlan>yes</vlan> is given, backup of vlan data is also stored to file <hostname>-vlan.
+# This data is device's response on show vlan command.
+# conf_changes.txt keeps data about last configuration changes date/time. It's used for tracking
+# changes and adding changed files in add_git.sh.
 #
 # DISCLAIMER: This program is free open source and should be used only upon your responsibility.
 # No charges can be claimed from the author for potential damages caused.
 #
 # Author: Svilen Stavrev
 # Varna, 2017
+#
 
 import xml.etree.ElementTree as ET  # работа с XML
 import time
@@ -31,7 +30,7 @@ import ast  # For string to dictionary conversion
 
 
 def write_log_msg(msg):
-    # Записва във log.txt диагностично съобщение а също дата/час на записа.
+    # Write to log.txt timestamp and message. The message is also printed on console.
     log = open("log.txt", 'a+')
     time_stamp = time.strftime("[%d.%m.%Y %H:%M:%S]  ")
     log.write(time_stamp + msg + "\n")
@@ -42,35 +41,35 @@ def write_log_msg(msg):
 
 
 def go_enabled(crd):
-    # получава речник crd в които са IP адрес, потребителско име и пароли за устройството
-    # опитва се да установи telnet сесия и да стигне привилегирован режим.
-    # връща флаг enabled който е True ако функцията е успяла да стигне до привилегирован
-    # режим и да получи промпт #.  Ако не устее върнатия enabled=False
+    # Argument crd is a dictionary containing IP address, username, password etc.
+    # The function is trying to establish telnet session and to attain  privileged mode.
+    # It returns flag enabled which is True if privileged mode and # prompt is attained.
+    # Otherwise False is returned.
 
     write_log_msg("try backup for device with IP " + crd['ip'] + " hostname " + crd['hostname'] + "...")
     wait = 0.5
     enabled = False
 
-    # Прави се login като се предвиждат вариантите за влизане с username+password или само с password
-    # проверява се нивото на достъп privilege level и ако трябва се праща enable
+    # Login with Username/Password or only with Password according to the configuration of the remote device.
+    # The privilege level is checked and enable command is send if it's needed.
     re1 = re.compile("Username: ")
     re2 = re.compile("Password: ")
     re3 = re.compile("\n.+#$")  # privilege level 15
     re4 = re.compile("\n.+>$")  # privilege level 0
-    relist = [re1, re2, re3, re4]  # списък с regular expression за проверка на връщаните от Cisco низове
+    relist = [re1, re2, re3, re4]  # List of regular expressions for check of device response
 
     try:
         tty.open(crd['ip'], 23, 5)
-        exp = tty.expect(relist, 5)  # expect връща кортеж. Първия елемент е индекс на RegExp за който има match.
-        # Ако няма, стойността му е -1. Третия елемент е приетия низ.
+        exp = tty.expect(relist, 5)  # expect returns tuple. The first element is index of matched RegExp .
+                                     # If no match the index is -1. The third elemnt is received string.
         print exp
         if exp[0] == -1:
-            # няма открит reg exp
+            # No RegExp match
             write_log_msg("ERR: unexpected response from " + crd["ip"])
             tty.close()
             return enabled
         elif exp[0] == 0:
-            # идентификация по Username & Password
+            # Username and Password are required for login
             write_log_msg("Username and Password required")
             tty.write(crd['username'] + '\n')
             write_log_msg("write : username : " + '******')
@@ -78,7 +77,7 @@ def go_enabled(crd):
             exp = tty.expect(relist, 1)
             print "   ", exp
             if exp[0] != 1:
-                # След въведено Username трябва да поиска парола. Ако не е така излизаа с грешка
+                # After Username entered the Password should be requested. If not return with error message.
                 write_log_msg("ERR: unexpected response from " + crd["ip"] + " after Username entered.")
                 tty.close()
                 return enabled
@@ -86,18 +85,18 @@ def go_enabled(crd):
             write_log_msg("write : password : " + '******')
             time.sleep(wait)
         elif exp[0] == 1:
-            # идентификация по Password
+            # Password is required
             write_log_msg("Only password required")
             tty.write(crd['password'] + '\n')
             write_log_msg("write : password : " + '******')
             time.sleep(wait)
-        # До тук е въведена password или username/password в зависимост от нуждата
-        # устройството трябва да върне промпт завършващ с > или # в зависимот от privilege level
             write_log_msg(" Expecting prompt...")
+        # Up to this point the credentials are entered.
+        # A prompt > or # is expected depending on privilege level.
         exp = tty.expect(relist, 7)
         print "   ", exp
         if exp[0] == 3:
-            # промпт е > т.е. privilege level 0. трябва да се въведе enable
+            # Prompt is >  The privilege level is 0.  enable command must be entered
             write_log_msg("entered non-privileged mode")
             tty.write("enable\n")
             write_log_msg("write : enable")
@@ -105,7 +104,7 @@ def go_enabled(crd):
             exp = tty.expect(relist, 1)
             print "   ", exp
             if exp[0] == 1:
-                # очаква се enable password
+                # expecting enable password
                 tty.write(crd['enable'] + '\n')
                 write_log_msg("write : enable password : " + '*****')
                 time.sleep(wait)
@@ -113,11 +112,11 @@ def go_enabled(crd):
                 write_log_msg("ERR: Unexpected responce from " + crd['ip'] + " after enable command.")
                 tty.close()
                 return enabled
-            # enable паролата е въведена. Очакваме промпт #
+            # enable password is entered. Prompt # is expected
             exp = tty.expect(relist, 2)
             print exp
             if exp[0] == 2:
-                # промпт е # - има privilege level 15
+                # The prompt is # -  privilege level is 15
                 enabled = True
                 write_log_msg("entered privileged mode")
             else:
@@ -125,7 +124,7 @@ def go_enabled(crd):
                 tty.close()
                 return enabled
         elif exp[0] == 2:
-            # промпт е # - има privilege level 15
+            # The prompt is # -  privilege level is 15
             enabled = True
             write_log_msg("entered privileged mode")
         elif exp[0] == 1 or exp[0] == 0:
@@ -137,7 +136,7 @@ def go_enabled(crd):
             tty.close()
             return enabled
 
-        # Тук сме в privileged mode!
+        # We are in privileged mode!
     except:
         write_log_msg("ERR: Failed telnet to " + crd['ip'])
         return enabled
@@ -147,21 +146,21 @@ def go_enabled(crd):
 
 
 def do_backup_running_config(hostname):
-    # Изтегля конфигурацията при вече изградена telnet връзка и privileged mode
-    # Използва командата show running-config
+    # Having established telnet session and privileged mode download backup of the running config.
+    # Command show running-config is used
     write_log_msg("backing up the running config...")
-    tty.write("terminal length 0\n")  # без тази команда няма да се изведе цялата конфигурация наведнъж
+    tty.write("terminal length 0\n")  # This is required to have all the config in single response
     time.sleep(0.5)
     tty.write("show run\n")
     re1 = re.compile("\r?\nend\r?\n")
     re_list = [re1]
     conf = tty.expect(re_list, 5)
     if conf[0] == 0:
-        # Записваме конфигурацията във файл
+        # Write backup to file
         backup_file = open(hostname + "-confg", 'w')
         lines = conf[2].splitlines()
         for l in lines:
-            # махат се редове които нямат касателство към конфигурацията
+            # Remove lines which aren't part of the config
             if l.find("terminal length 0") != -1:
                 continue
             if l.find("show run") != -1:
@@ -171,7 +170,7 @@ def do_backup_running_config(hostname):
             if l.find("Current configuration") != -1:
                 continue
             if l.find("! Last configuration change at ") != -1:
-                last_updates[hostname] = l[31:59]
+                last_changes[hostname] = l[31:59]
             backup_file.write(l + "\n")
         backup_file.close()
     else:
@@ -181,9 +180,9 @@ def do_backup_running_config(hostname):
 
 
 def do_backup_vlan(hostname):
-    # Изпраща команда show vlan и върнатия резултат го записва във файл hostname-vlan
+    # Send show vlan and store the response to file <hostname>-vlan
     write_log_msg("backingup VLAN data...")
-    tty.write("terminal length 0\n")  # без тази команда няма да се изведе цялата конфигурация наведнъж
+    tty.write("terminal length 0\n")  # This is required to have all the config in single response
     time.sleep(0.5)
     tty.write("show vlan\n")
     time.sleep(4)
@@ -201,9 +200,9 @@ def do_backup_vlan(hostname):
 # ------------------------------------------------------------------ #
 
 
-# НАЧАЛО НА ГЛАВНАТА ПРОГРАМА
+# THE MAIN PROGRAM STARTS HERE
 tty = telnetlib.Telnet()
-# изчистване на log.txt от старо съдържание
+# clear log.txt
 logtxt = open("log.txt", 'w')
 logtxt.close()
 write_log_msg("script was started")
@@ -213,11 +212,12 @@ root = tree.getroot()
 
 i = 0
 credentials = {'ip': "None", 'username': 'None', 'password': 'None', 'enable': 'None', 'hostname': 'None', 'vlan': 'None'}
-last_updates = {}  # тук за всяко устройство се записва hostname и в do_backup_running_config() се задава за това устройство
-              # дата и час на последната промяна в конфигурацията
+last_changes = {}  # Here for each device hostname  and date/time of the last change are stored.
+                   # Data is filled in do_backup_running_config().
+all_backups = []
 
 for child in root:
-    # За поредното i устройство се извличат данните от XML
+    # For i-th device data is extracted from XML
     i += 1
     for elm in child:
         if elm.tag == "ip":
@@ -232,18 +232,19 @@ for child in root:
             credentials['hostname'] = elm.text
         elif elm.tag == "vlan":
             credentials['vlan'] = elm.text
-    # В credentials са извлечени всички данни за устройството i.
-    # Прави се опит да се влвзе в privileged mode и да се архивира конфигурацията
+    # Now in credentials is all the data for i-th device
+    # Let's try to enter privileged mode and create backup
     print child.tag, i
     print credentials
     is_enabled = go_enabled(credentials)
     if is_enabled:
         write_log_msg("Succcessfuly enabled!")
         do_backup_running_config(credentials['hostname'])
-        # Ако в XML-а е указано, се архивира и инфо за VLAN
+        all_backups.append(credentials['hostname'])
+        # If it's said in XML-а backup VLAN data
         if credentials['vlan'] == 'yes':
             do_backup_vlan(credentials['hostname'])
-        # Приключва работа с устройство i
+        # Done with i-th device
         write_log_msg("Closing the connection.")
         tty.write("exit\n")
         time.sleep(2)
@@ -253,56 +254,55 @@ for child in root:
         write_log_msg("Failed to enable!")
     print "\n---------------------------\n"
 
-# Всички конфигурации са архивирани
-# прави се проверка за това кои устройства имат промяна в конфигурацията за времето от предното архивиране
-# и се създава скрипт add_git_changes който да добави в git променените файлове и да направи commit
-# В речника last_updates са събрани hostname:дата-час-на-последна промяна.
-# Във файла conf_updates.txt  е записана информацията за променени конфигурации при предходното стартиране
-write_log_msg("generating add_git script...")
+# All the configurations are saved.
+# Let's check for which there was change since last run of ciback.
+# add_git.sh bash script is created for adding changed files to git and to commit changes.
+# The file conf_changes.txt stores the data about last changes of configs sice the last run.
+write_log_msg("generating add_git.sh script...")
 print "Configuration last changes:"
-for host in last_updates:
-    print host, " : ", last_updates[host]
+for host in last_changes:
+    print host, " : ", last_changes[host]
 
-add_git = open("add_git",'w')
+add_git = open("add_git.sh",'w')
 add_git.write("#!/bin/bash\n")
 do_commit = False
 try:
-    prv_updates_file = open("conf_updates.txt",'r')
-    pu_data = prv_updates_file.read()
-    prv_updates = ast.literal_eval(pu_data)
-    prv_updates_file.close()
+    prv_changes_file = open("conf_changes.txt",'r')
+    pu_data = prv_changes_file.read()
+    prv_changes = ast.literal_eval(pu_data)
+    prv_changes_file.close()
     print "Configuration previous changes:"
-    for host in last_updates:
-        print host, " : ", prv_updates[host]
-    # Обхожда се last_updates и за всеки хост се сравнява момента на последна промяна в конфигурацията
-    # с момента на последна промяна записан в prv_updates и съхранен в conf_updates.txt при предното стартиране
-    # на програмата. Ако има разлика в датите съответната конфигурация е променяна и затова се добавя в git
-    for host in last_updates:
-        if str(host) in prv_updates:
-            if last_updates[host] != prv_updates[host]:
+    for host in last_changes:
+        if str(host) in prv_changes:
+            print host, " : ", prv_changes[host]
+        else:
+            print "No previous changes data found for ", host
+    # Iterate last_changes and for each device compare the last changes date/time with prv_changes.
+    # If there was change add to git.
+    for host in last_changes:
+        if str(host) in prv_changes:
+            if last_changes[host] != prv_changes[host]:
                 add_git.write("/usr/bin/git add " + host +"-confg\n")
                 do_commit = True
         else:
             add_git.write("/usr/bin/git add " + host + "-confg\n")
             do_commit = True
 except IOError, e:
-    write_log_msg("ERR: Failed opening conf_updates.txt")
+    write_log_msg("ERR: Failed opening conf_changes.txt")
     print(e)
-    prv_updates = {}
-    # В този случай в git се добавят всички изтеглени конфигурации
-    add_git.write("/usr/bin/git add *-confg\n")
-    do_commit = True
+    prv_changes = {}
+    # In case conf_changes.txt is missing or corrupt all backups are added for commit.
+    for host in all_backups:
+        add_git.write("/usr/bin/git add " + host + "-confg\n")
+        do_commit = True
 
 if do_commit:
     add_git.write('/usr/bin/git commit -am"automated commit"\n')
 add_git.close()
 
-# Write the contents of last_updates to conf_updates.txt
-prv_updates_file = open("conf_updates.txt", 'w')
-prv_updates_file.write(str(last_updates))
-prv_updates_file.close()
+# Write the contents of last_changes to conf_changes.txt
+prv_changes_file = open("conf_changes.txt", 'w')
+prv_changes_file.write(str(last_changes))
+prv_changes_file.close()
 
 write_log_msg("script has finished")
-
-
-
