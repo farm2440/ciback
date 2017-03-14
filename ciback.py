@@ -211,7 +211,7 @@ tree = ET.parse("credentials.xml")
 root = tree.getroot()
 
 i = 0
-credentials = {'ip': "None", 'username': 'None', 'password': 'None', 'enable': 'None', 'hostname': 'None', 'vlan': 'None'}
+credentials = {'ip': None, 'username': None, 'password': None, 'enable': None, 'hostname': None, 'vlan': None}
 last_changes = {}  # Here for each device hostname  and date/time of the last change are stored.
                    # Data is filled in do_backup_running_config().
 all_backups = []
@@ -297,7 +297,7 @@ except IOError, e:
         do_commit = True
 
 if do_commit:
-    add_git.write('/usr/bin/git commit -am"automated commit"\n')
+    add_git.write('/usr/bin/git commit -am"ciback automated commit"\n')
 add_git.close()
 
 # Write the contents of last_changes to conf_changes.txt
