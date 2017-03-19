@@ -20,11 +20,13 @@
 # Varna, 2017
 #
 
-import xml.etree.ElementTree as ET  # работа с XML
+import xml.etree.ElementTree as ET  #  XML
 import time
 import telnetlib
 import re   # Regular Expression
 import ast  # For string to dictionary conversion
+
+backup_path = r"/var/data/git_repos/config_repo/"
 
 # ------------------------------------------------------------------ #
 
@@ -155,9 +157,10 @@ def do_backup_running_config(hostname):
     re1 = re.compile("\r?\nend\r?\n")
     re_list = [re1]
     conf = tty.expect(re_list, 5)
+    
     if conf[0] == 0:
         # Write backup to file
-        backup_file = open(hostname + "-confg", 'w')
+        backup_file = open(backup_path + hostname + "-confg", 'w')
         lines = conf[2].splitlines()
         for l in lines:
             # Remove lines which aren't part of the config
@@ -188,7 +191,7 @@ def do_backup_vlan(hostname):
     time.sleep(4)
     vlan_data = tty.read_very_eager()
     vlan_data_lines = vlan_data.splitlines()
-    vlan_backup = open(hostname + "-vlan", 'w')
+    vlan_backup = open(backup_path + hostname + "-vlan", 'w')
     for l in vlan_data_lines:
         if l.find("terminal length 0") != -1:
             continue
@@ -265,6 +268,7 @@ for host in last_changes:
 
 add_git = open("add_git.sh",'w')
 add_git.write("#!/bin/bash\n")
+add_git.write("cd " + backup_path + "\n")
 do_commit = False
 try:
     prv_changes_file = open("conf_changes.txt",'r')
