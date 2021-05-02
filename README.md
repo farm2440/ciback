@@ -10,3 +10,9 @@ yes is given, backup of vlan data is also stored to file HOSTNAME-vlan.
 This data is device's response on show vlan command.
 conf_changes.txt keeps data about last configuration changes date/time. It's used for tracking
 changes and adding changed files in add_git.sh.
+
+ciback.py - uses Telnet for transport. 
+Credentials and IP addresses  are in single XML files
+
+ciback-ssh.py - uses SSH for transport
+Tries to parse all XML files in currend folder for credentials and IP addresses.
