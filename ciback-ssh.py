@@ -18,7 +18,7 @@
 # No charges can be claimed from the author for potential damages caused.
 #
 # Author: Svilen Stavrev
-# Varna, 2020
+# Varna, 2021
 #
 
 import xml.etree.ElementTree as ET  # XML
